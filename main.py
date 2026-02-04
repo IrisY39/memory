@@ -1,48 +1,47 @@
 from flask import Flask, request, jsonify
 import os
+import requests
 
 app = Flask(__name__)
+
+# 从环境变量中读取配置
+API_KEY = os.environ.get("OPENAI_API_KEY")  # 你模型提供方的API Key
+BASE_URL = os.environ.get("BASE_URL")  # 例如 https://openrouter.ai/api/v1
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-pro")  # 默认模型，可以改成你要用的
 
 @app.route("/")
 def index():
     return "Memory Gateway is running!"
 
-@app.route("/chat/completions", methods=["POST"])
-def completions():
-    data = request.json
-    messages = data.get("messages", [])
-    
-    # 简单回显最后一条用户消息
-    user_message = ""
-    for message in reversed(messages):
-        if message.get("role") == "user":
-            user_message = message.get("content", "")
-            break
+@app.route("/v1/chat/completions", methods=["POST"])
+def chat_completions():
+    try:
+        incoming_data = request.json
 
-    reply = f"你刚才说的是：{user_message}"
-
-    return jsonify({
-        "id": "chatcmpl-mockid",
-        "object": "chat.completion",
-        "created": 1234567890,
-        "model": "gpt-4",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": reply
-                },
-                "finish_reason": "stop"
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0
+        # 构造转发到实际API的数据
+        proxy_payload = {
+            "model": incoming_data.get("model", MODEL_NAME),
+            "messages": incoming_data["messages"],
+            "temperature": incoming_data.get("temperature", 0.7),
+            "top_p": incoming_data.get("top_p", 1),
+            "n": incoming_data.get("n", 1),
+            "stream": incoming_data.get("stream", False),
+            "max_tokens": incoming_data.get("max_tokens", 1024),
         }
-    })
+
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        upstream_url = f"{BASE_URL}/chat/completions"
+        response = requests.post(upstream_url, headers=headers, json=proxy_payload)
+
+        return (response.content, response.status_code, response.headers.items())
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))  
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
