@@ -32,6 +32,7 @@ def list_models():
 def chat_completions():
     try:
         incoming_data = request.json
+
         proxy_payload = {
             "model": incoming_data.get("model", MODEL_NAME),
             "messages": incoming_data["messages"],
@@ -41,14 +42,20 @@ def chat_completions():
             "stream": incoming_data.get("stream", False),
             "max_tokens": incoming_data.get("max_tokens", 1024),
         }
+
         headers = {
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
         }
+
         upstream_url = f"{BASE_URL}/chat/completions"
         response = requests.post(upstream_url, headers=headers, json=proxy_payload)
 
-        return (response.content, response.status_code, response.headers.items())
+        # 检查是否为 JSON 返回
+        if response.headers.get("Content-Type", "").startswith("application/json"):
+            return jsonify(response.json()), response.status_code
+        else:
+            return response.content, response.status_code, {'Content-Type': 'application/json'}
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
