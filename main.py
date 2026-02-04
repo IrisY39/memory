@@ -5,20 +5,35 @@ import requests
 app = Flask(__name__)
 
 # 从环境变量中读取配置
-API_KEY = os.environ.get("OPENAI_API_KEY")  # 你模型提供方的API Key
-BASE_URL = os.environ.get("BASE_URL")  # 例如 https://openrouter.ai/api/v1
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-pro")  # 默认模型，可以改成你要用的
+API_KEY = os.environ.get("OPENAI_API_KEY")  # 模型提供方的 API Key
+BASE_URL = os.environ.get("BASE_URL")       # 例如 https://openrouter.ai/api/v1
+MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-pro")  # 默认模型名称
 
 @app.route("/")
 def index():
     return "Memory Gateway is running!"
+
+@app.route("/v1/models", methods=["GET"])
+def models():
+    try:
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        # 请求模型提供方的 models 接口
+        response = requests.get(f"{BASE_URL}/models", headers=headers)
+
+        return (response.content, response.status_code, response.headers.items())
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
     try:
         incoming_data = request.json
 
-        # 构造转发到实际API的数据
         proxy_payload = {
             "model": incoming_data.get("model", MODEL_NAME),
             "messages": incoming_data["messages"],
