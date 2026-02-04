@@ -4,36 +4,34 @@ import requests
 
 app = Flask(__name__)
 
-# 从环境变量中读取配置
-API_KEY = os.environ.get("OPENAI_API_KEY")  # 模型提供方的 API Key
-BASE_URL = os.environ.get("BASE_URL")       # 例如 https://openrouter.ai/api/v1
-MODEL_NAME = os.environ.get("MODEL_NAME", "gemini-2.5-pro")  # 默认模型名称
+API_KEY = os.environ.get("OPENAI_API_KEY")
+BASE_URL = os.environ.get("BASE_URL")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o")
 
 @app.route("/")
 def index():
     return "Memory Gateway is running!"
 
+# ✅ 添加 /v1/models 响应，骗过 Chatbox 验证
 @app.route("/v1/models", methods=["GET"])
-def models():
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
-        }
+def list_models():
+    return jsonify({
+        "object": "list",
+        "data": [
+            {
+                "id": MODEL_NAME,
+                "object": "model",
+                "created": 1677858242,
+                "owned_by": "me"
+            }
+        ]
+    })
 
-        # 请求模型提供方的 models 接口
-        response = requests.get(f"{BASE_URL}/models", headers=headers)
-
-        return (response.content, response.status_code, response.headers.items())
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# ✅ 转发 /v1/chat/completions 到真实的 API 服务
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
     try:
         incoming_data = request.json
-
         proxy_payload = {
             "model": incoming_data.get("model", MODEL_NAME),
             "messages": incoming_data["messages"],
@@ -43,12 +41,10 @@ def chat_completions():
             "stream": incoming_data.get("stream", False),
             "max_tokens": incoming_data.get("max_tokens", 1024),
         }
-
         headers = {
             "Authorization": f"Bearer {API_KEY}",
             "Content-Type": "application/json"
         }
-
         upstream_url = f"{BASE_URL}/chat/completions"
         response = requests.post(upstream_url, headers=headers, json=proxy_payload)
 
