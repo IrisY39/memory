@@ -1,63 +1,63 @@
-from flask import Flask, request, jsonify
-import os
-import requests
+from flask import Flask, request, jsonify, Response
+import os, requests, json
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("OPENAI_API_KEY")
-BASE_URL = os.environ.get("BASE_URL")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o")
+API_KEY    = os.environ["OPENAI_API_KEY"]        # 必填
+BASE_URL   = os.environ["BASE_URL"]              # 必填，如 https://openrouter.ai/api/v1
+MODEL_NAME = os.environ["MODEL_NAME"]            # 必填，如 gemini-2.5-pro
 
 @app.route("/")
 def index():
     return "Memory Gateway is running!"
 
-# ✅ 添加 /v1/models 响应，骗过 Chatbox 验证
+# 让 Chatbox 成功拉模型
 @app.route("/v1/models", methods=["GET"])
 def list_models():
     return jsonify({
         "object": "list",
-        "data": [
-            {
-                "id": MODEL_NAME,
-                "object": "model",
-                "created": 1677858242,
-                "owned_by": "me"
-            }
-        ]
+        "data": [{
+            "id": MODEL_NAME,
+            "object": "model",
+            "created": 1677858242,
+            "owned_by": "memory-gateway"
+        }]
     })
 
-# ✅ 转发 /v1/chat/completions 到真实的 API 服务
+# 转发聊天
 @app.route("/v1/chat/completions", methods=["POST"])
 def chat_completions():
     try:
-        incoming_data = request.json
+        payload = request.get_json(force=True)
 
-        proxy_payload = {
-            "model": incoming_data.get("model", MODEL_NAME),
-            "messages": incoming_data["messages"],
-            "temperature": incoming_data.get("temperature", 0.7),
-            "top_p": incoming_data.get("top_p", 1),
-            "n": incoming_data.get("n", 1),
-            "stream": incoming_data.get("stream", False),
-            "max_tokens": incoming_data.get("max_tokens", 1024),
-        }
+        # 若前端没带 model，就补上你想用的
+        payload["model"] = payload.get("model", MODEL_NAME)
 
         headers = {
             "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
+            "Content-Type":  "application/json"
         }
 
-        upstream_url = f"{BASE_URL}/chat/completions"
-        response = requests.post(upstream_url, headers=headers, json=proxy_payload)
+        upstream_resp = requests.post(
+            f"{BASE_URL}/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
 
-        # 检查是否为 JSON 返回
-        if response.headers.get("Content-Type", "").startswith("application/json"):
-            return jsonify(response.json()), response.status_code
-        else:
-            return response.content, response.status_code, {'Content-Type': 'application/json'}
+        # 打印到日志便于调试
+        print("⇡ upstream status:", upstream_resp.status_code)
+        print("⇡ upstream body:",   upstream_resp.text[:400])
+
+        # 直接把 JSON / bytes 回传给 Chatbox
+        return Response(
+            upstream_resp.content,
+            status = upstream_resp.status_code,
+            content_type = upstream_resp.headers.get("Content-Type", "application/json")
+        )
 
     except Exception as e:
+        print("❌ gateway error:", e)
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
